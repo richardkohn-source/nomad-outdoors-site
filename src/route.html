@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>__TITLE__ · Nomad Outdoors</title>
+<meta name="description" content="__DESC__">
+<link rel="canonical" href="__ORIGIN__/routes/__SLUG__">
+<meta property="og:url" content="__ORIGIN__/routes/__SLUG__">
+<meta property="og:site_name" content="Nomad Outdoors">
+<meta property="og:title" content="__TITLE__">
+<meta property="og:description" content="__DESC__">
+<meta property="og:type" content="article">
+<meta property="og:image" content="__ORIGIN__/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#17201E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+{{SITE_CSS}}
+{{ROUTES_CSS}}
+</style>
+</head>
+<body>
+{{NAV}}
+<header class="pagehead slim">
+  <div class="in">
+    <a class="crumb" href="/routes">← Route library</a>
+    <p class="eyebrow" id="kind"></p>
+    <h1 id="title"></h1>
+    <p class="intro" id="meta"></p>
+  </div>
+</header>
+
+<main class="in route-main">
+  <div class="mapwrap"><div id="map" role="region" aria-label="Route map"></div></div>
+
+  <dl class="stats" id="stats"></dl>
+
+  <section class="profile-block" aria-labelledby="ph">
+    <h2 id="ph">Elevation</h2>
+    <div class="profile" id="profile"><div class="tip" id="tip" hidden></div></div>
+  </section>
+
+  <div class="route-text">
+    <div id="notes"></div>
+    <div class="actions">
+      <a class="btn" id="gpx" download>Download GPX</a>
+      <a class="btn ghost" href="/routes">More routes</a>
+    </div>
+    <p class="fine">Shared as driven on the day. Sand, tracks and access change, so drive within your ability, never alone, and at your own risk. The first and last stretch of every track is trimmed and camp spots are left off the map.</p>
+  </div>
+</main>
+
+{{FOOTER}}
+
+<script type="application/json" id="data">__DATA__</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const LABEL = {desert:"Desert drive", wadi:"Wadi trip", camping:"Camping", overland:"Overlanding", social:"Social"};
+const R = JSON.parse(document.getElementById("data").textContent);
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hm = m => m == null ? "–" : (m >= 60 ? Math.floor(m/60)+" h "+String(m%60).padStart(2,"0") : m+" min");
+const nf = n => n == null ? "–" : Number(n).toLocaleString("en-GB");
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+const t = LABEL[R.type] ? R.type : "desert";
+$("#kind").innerHTML = '<span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>';
+$("#title").textContent = R.title;
+const when = R.date ? new Date(R.date+"T00:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"}) : "";
+$("#meta").textContent = [when, R.area && R.area !== R.title ? R.area : null, R.country].filter(Boolean).join(" · ");
+
+$("#stats").innerHTML = [
+  ["Distance", R.distance_km+" km"], ["Moving time", hm(R.moving_min)], ["Total time", hm(R.duration_min)],
+  ["Climb", nf(R.ascent_m)+" m"], ["Highest point", nf(R.ele_max_m)+" m"]
+].map(s => '<div><dt>'+s[0]+'</dt><dd>'+esc(s[1])+'</dd></div>').join("");
+
+if(R.notes || R.vehicle){
+  $("#notes").innerHTML = (R.notes ? R.notes.split(/\n{2,}/).map(p => '<p>'+esc(p)+'</p>').join("") : "")
+    + (R.vehicle ? '<p class="veh"><b>Driven in:</b> '+esc(R.vehicle)+'</p>' : "");
+}
+$("#gpx").href = "/data/routes/"+R.slug+".gpx";
+$("#gpx").setAttribute("download", R.slug+".gpx");
+
+/* ---- map ---- */
+let hoverMarker = null, map = null;
+if(window.L){
+  map = L.map("map", {scrollWheelZoom:false, attributionControl:true});
+  const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    maxZoom: 18, attribution: "Imagery © Esri, Maxar, Earthstar Geographics"
+  });
+  const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+    maxZoom: 17, attribution: "© OpenStreetMap contributors, SRTM · Style © OpenTopoMap (CC-BY-SA)"
+  });
+  sat.addTo(map);
+  L.control.layers({"Satellite": sat, "Topographic": topo}, null, {position:"topright"}).addTo(map);
+  const lines = R.segments.map(seg => {
+    L.polyline(seg, {color:"#10201D", weight:7, opacity:.85, lineJoin:"round"}).addTo(map);
+    return L.polyline(seg, {color:"#F2B233", weight:3.5, opacity:1, lineJoin:"round"}).addTo(map);
+  });
+  const group = L.featureGroup(lines);
+  map.fitBounds(group.getBounds(), {padding:[24,24]});
+  const first = R.segments[0][0], lastSeg = R.segments[R.segments.length-1], last = lastSeg[lastSeg.length-1];
+  L.circleMarker(first, {radius:7, color:"#10201D", weight:2, fillColor:"#4DB6A9", fillOpacity:1}).bindTooltip("Start").addTo(map);
+  L.circleMarker(last, {radius:7, color:"#10201D", weight:2, fillColor:"#F2F2EE", fillOpacity:1}).bindTooltip("Finish").addTo(map);
+  hoverMarker = L.circleMarker(first, {radius:6, color:"#10201D", weight:2, fillColor:"#F2B233", fillOpacity:1, interactive:false});
+  map.on("click", () => map.scrollWheelZoom.enable());
+} else {
+  $("#map").innerHTML = '<p class="nomap">The map couldn\'t load. Check your connection and refresh.</p>';
+}
+
+/* ---- elevation profile ---- */
+const P = R.profile;
+function niceStep(range, target){
+  const raw = range/target, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw/mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
+function drawProfile(){
+  const box = $("#profile"), W = box.clientWidth, H = 190, m = {l:64, r:14, t:14, b:28};
+  if(!P.length || !W) return;
+  const xMax = P[P.length-1][0];
+  let yMin = Math.min(...P.map(p => p[1])), yMax = Math.max(...P.map(p => p[1]));
+  const ys = niceStep(Math.max(yMax - yMin, 20), 3);
+  yMin = Math.floor(yMin/ys)*ys; yMax = Math.ceil(yMax/ys)*ys; if(yMax === yMin) yMax += ys;
+  const X = d => m.l + d/xMax*(W-m.l-m.r), Y = e => m.t + (1-(e-yMin)/(yMax-yMin))*(H-m.t-m.b);
+  const line = P.map((p,i) => (i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1)).join("");
+  const area = line + "L"+X(xMax).toFixed(1)+" "+Y(yMin)+"L"+X(0)+" "+Y(yMin)+"Z";
+  let g = "";
+  for(let v = yMin; v <= yMax + 1e-6; v += ys) g += '<line x1="'+m.l+'" x2="'+(W-m.r)+'" y1="'+Y(v)+'" y2="'+Y(v)+'" class="grid"/><text x="'+(m.l-8)+'" y="'+(Y(v)+4)+'" class="ax" text-anchor="end">'+nf(v)+' m</text>';
+  const xs = niceStep(xMax, W < 500 ? 4 : 7);
+  for(let v = 0; v <= xMax + 1e-6; v += xs) g += '<text x="'+X(v)+'" y="'+(H-8)+'" class="ax" text-anchor="middle">'+nf(Math.round(v))+(v===0?'':' km')+'</text>';
+  box.querySelector("svg")?.remove();
+  box.insertAdjacentHTML("afterbegin",
+    '<svg width="'+W+'" height="'+H+'" role="img" aria-label="Elevation profile, from '+nf(Math.min(...P.map(p=>p[1])))+' to '+nf(Math.max(...P.map(p=>p[1])))+' metres over '+R.distance_km+' km">'
+    + g + '<path d="'+area+'" class="fill"/><path d="'+line+'" class="ln"/>'
+    + '<line id="cx" class="cross" y1="'+m.t+'" y2="'+(H-m.b)+'" visibility="hidden"/><circle id="cd" r="5" class="dot" visibility="hidden"/>'
+    + '<rect x="'+m.l+'" y="0" width="'+(W-m.l-m.r)+'" height="'+H+'" fill="transparent" id="hit"/></svg>');
+  const hit = box.querySelector("#hit"), cx = box.querySelector("#cx"), cd = box.querySelector("#cd"), tip = $("#tip");
+  const move = ev => {
+    const r = hit.getBoundingClientRect(), d = Math.max(0, Math.min(1, (ev.clientX - r.left)/r.width)) * xMax;
+    let lo = 0, hi = P.length - 1;
+    while(hi - lo > 1){ const mid = (lo+hi) >> 1; if(P[mid][0] < d) lo = mid; else hi = mid; }
+    const p = (d - P[lo][0] < P[hi][0] - d) ? P[lo] : P[hi];
+    const x = X(p[0]), y = Y(p[1]);
+    cx.setAttribute("x1", x); cx.setAttribute("x2", x); cx.setAttribute("visibility", "visible");
+    cd.setAttribute("cx", x); cd.setAttribute("cy", y); cd.setAttribute("visibility", "visible");
+    tip.hidden = false; tip.innerHTML = '<b>'+nf(p[1])+' m</b><span>'+p[0].toFixed(1)+' km</span>';
+    tip.style.left = Math.min(Math.max(x - tip.offsetWidth/2, 0), W - tip.offsetWidth) + "px";
+    if(hoverMarker && map){ hoverMarker.setLatLng([p[2], p[3]]); if(!map.hasLayer(hoverMarker)) hoverMarker.addTo(map); }
+  };
+  const leave = () => { cx.setAttribute("visibility","hidden"); cd.setAttribute("visibility","hidden"); tip.hidden = true; if(hoverMarker && map) hoverMarker.remove(); };
+  hit.addEventListener("pointermove", move); hit.addEventListener("pointerdown", move); hit.addEventListener("pointerleave", leave);
+}
+drawProfile();
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(drawProfile, 150); });
+</script>
+</body>
+</html>

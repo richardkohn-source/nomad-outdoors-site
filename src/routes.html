@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Route library · Nomad Outdoors</title>
+<meta name="description" content="__DESC__">
+<link rel="canonical" href="__ORIGIN__/routes">
+<meta property="og:url" content="__ORIGIN__/routes">
+<meta property="og:site_name" content="Nomad Outdoors">
+<meta property="og:title" content="Route library · Nomad Outdoors">
+<meta property="og:description" content="__DESC__">
+<meta property="og:type" content="website">
+<meta property="og:image" content="__ORIGIN__/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#17201E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+{{SITE_CSS}}
+{{ROUTES_CSS}}
+</style>
+</head>
+<body>
+{{NAV}}
+<header class="pagehead">
+  <div class="in">
+    <p class="eyebrow">Route library</p>
+    <h1>Where we've driven</h1>
+    <p class="intro">Tracks from real drives across the UAE and beyond, recorded on the day. Open any route for the map, the climb and a GPX file for your own navigation app.</p>
+    <dl class="totals" id="totals"></dl>
+  </div>
+</header>
+
+<main class="in routes-main">
+  <div class="filters" id="filters" role="group" aria-label="Filter routes"></div>
+  <div class="grid" id="grid"></div>
+  <p class="empty" id="empty" hidden>No routes match that filter.</p>
+  <p class="fine">Routes are shared as driven on the day. Sand, tracks and access change, so drive within your ability, never alone, and at your own risk. Start and end points are trimmed and camp spots are left off the map.</p>
+</main>
+
+{{FOOTER}}
+
+<script type="application/json" id="data">__DATA__</script>
+<script>
+const LABEL = {desert:"Desert drive", wadi:"Wadi trip", camping:"Camping", overland:"Overlanding", social:"Social"};
+const D = JSON.parse(document.getElementById("data").textContent);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtDate = iso => iso ? new Date(iso+"T00:00:00").toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"}) : "";
+const hm = m => m == null ? "" : (m >= 60 ? Math.floor(m/60)+" h "+String(m%60).padStart(2,"0")+" min" : m+" min");
+const nf = n => Number(n).toLocaleString("en-GB");
+
+function thumb(pts){
+  const W = 320, H = 200, P = 18;
+  const lat0 = pts.reduce((a,p) => a+p[0], 0)/pts.length, k = Math.cos(lat0*Math.PI/180);
+  const xs = pts.map(p => p[1]*k), ys = pts.map(p => p[0]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min((W-2*P)/((x1-x0)||1e-6), (H-2*P)/((y1-y0)||1e-6));
+  const ox = (W - (x1-x0)*s)/2, oy = (H - (y1-y0)*s)/2;
+  const xy = pts.map((p,i) => [(xs[i]-x0)*s+ox, H-((ys[i]-y0)*s+oy)]);
+  const d = xy.map((q,i) => (i?"L":"M")+q[0].toFixed(1)+" "+q[1].toFixed(1)).join("");
+  const a = xy[0], b = xy[xy.length-1];
+  return '<svg viewBox="0 0 '+W+' '+H+'" aria-hidden="true"><path d="'+d+'" class="trk"/>'
+    + '<circle cx="'+a[0].toFixed(1)+'" cy="'+a[1].toFixed(1)+'" r="4.5" class="st"/><circle cx="'+b[0].toFixed(1)+'" cy="'+b[1].toFixed(1)+'" r="4.5" class="fn"/></svg>';
+}
+
+const T = D.totals;
+document.getElementById("totals").innerHTML =
+  '<div><dt>Routes</dt><dd>'+nf(T.routes)+'</dd></div>' +
+  '<div><dt>Kilometres</dt><dd>'+nf(T.distance_km)+'</dd></div>' +
+  '<div><dt>Hours moving</dt><dd>'+nf(T.moving_hours)+'</dd></div>' +
+  '<div><dt>Countries</dt><dd>'+T.countries.length+'</dd></div>';
+
+const countries = [...new Set(D.routes.map(r => r.country).filter(Boolean))];
+let filter = "all";
+const fbox = document.getElementById("filters");
+fbox.innerHTML = ['all', ...countries].map(c => '<button type="button" class="chip" data-f="'+esc(c)+'" aria-pressed="'+(c===filter)+'">'+(c==="all"?"All routes":esc(c))+'</button>').join("");
+fbox.addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  filter = b.dataset.f;
+  fbox.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  draw();
+});
+
+function draw(){
+  const list = D.routes.filter(r => filter === "all" || r.country === filter);
+  document.getElementById("empty").hidden = list.length > 0;
+  document.getElementById("grid").innerHTML = list.map(r => {
+    const t = LABEL[r.type] ? r.type : "desert";
+    return '<a class="rcard" href="/routes/'+esc(r.slug)+'">'
+      + '<div class="thumb">'+thumb(r.thumb)+'</div>'
+      + '<div class="rbody"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>'
+      + '<h2>'+esc(r.title)+'</h2>'
+      + '<p class="rmeta">'+esc(fmtDate(r.date))+(r.country?' · '+esc(r.country):'')+'</p>'
+      + '<p class="rstats"><span><b>'+r.distance_km+'</b> km</span><span><b>'+esc(hm(r.moving_min))+'</b> moving</span><span><b>'+nf(r.ascent_m)+'</b> m climb</span></p>'
+      + '</div></a>';
+  }).join("");
+}
+draw();
+</script>
+</body>
+</html>

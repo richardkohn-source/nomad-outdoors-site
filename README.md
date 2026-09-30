@@ -58,3 +58,12 @@ Edit the files in `src/`, run `python3 build.py`, and paste the new `worker.js` 
 - Sign-ups are trust-based. Someone who knows another member's number could cancel for them. That's fine for a friendly group and easy to tighten later if needed.
 - The free Workers and D1 allowances are far beyond what a group of 50 will use.
 - A photo gallery can be added later using Cloudflare R2 storage alongside the same Worker.
+
+## Route library (added 30 Sept 2026)
+
+- Original GPX exports from Gaia GPS live in `content/gpx/`.
+- `python3 tools/import_gpx.py [new files.gpx]` processes every track: stats, simplified map line, elevation profile, a tidy GPX download, `dist/data/routes/index.json` and `dist/sitemap.xml`.
+- Privacy: waypoints are never copied, the first and last 500 m of every track are trimmed, and any stop longer than two hours (a camp) is cut out with the area around it.
+- Titles, notes, vehicle, type, featured and hidden flags are edited in `content/routes/meta.json`. New routes get a working title; the importer never overwrites your edits.
+- Then run `python3 build.py`, commit and push. Cloudflare publishes automatically.
+- Pages: `/routes` (library) and `/routes/<slug>` (map, stats, elevation, GPX download).

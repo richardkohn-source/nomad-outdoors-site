@@ -4,6 +4,8 @@
 
 const HTML = __HTML__;
 const HOME = __HOME__;
+const ROUTES_PAGE = __ROUTES_PAGE__;
+const ROUTE_PAGE = __ROUTE_PAGE__;
 const ICONS = __ICONS__;
 
 const MANIFEST = JSON.stringify({
@@ -42,7 +44,26 @@ export default {
         const page = path.startsWith("/board") ? HTML : HOME;
         return new Response(page.replaceAll("__ORIGIN__", url.origin), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "x-content-type-options": "nosniff", "referrer-policy": "same-origin" } });
       }
-      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /board\nDisallow: /api/\n", { headers: { "content-type": "text/plain" } });
+      if (path === "/robots.txt") return new Response("User-agent: *\nAllow: /\nDisallow: /board\nDisallow: /api/\nSitemap: " + url.origin + "/sitemap.xml\n", { headers: { "content-type": "text/plain" } });
+      if (path.startsWith("/data/") || path === "/sitemap.xml") {
+        if (!env.ASSETS) return new Response("Not found", { status: 404 });
+        return env.ASSETS.fetch(req);
+      }
+      if (path === "/routes" || path === "/routes/") {
+        const index = await asset(env, url, "/data/routes/index.json");
+        if (!index) return Response.redirect(url.origin + "/", 302);
+        const t = index.totals;
+        const desc = `${t.routes} off-road routes and ${t.distance_km.toLocaleString("en-GB")} km of tracks from Nomad Outdoors drives across ${t.countries.join(" and ")}, with maps, elevation and GPX downloads.`;
+        return page(fill(ROUTES_PAGE, { __ORIGIN__: url.origin, __DESC__: escHtml(desc) }, index));
+      }
+      const m = /^\/routes\/([a-z0-9-]+)\/?$/.exec(path);
+      if (m) {
+        const r = await asset(env, url, `/data/routes/${m[1]}.json`);
+        if (!r) return Response.redirect(url.origin + "/routes", 302);
+        const hrs = r.moving_min >= 60 ? `${Math.floor(r.moving_min / 60)} h ${r.moving_min % 60} min` : `${r.moving_min} min`;
+        const desc = `${r.distance_km} km off-road route${r.area ? " in " + r.area : ""}${r.country ? ", " + r.country : ""}. ${hrs} moving, ${r.ascent_m} m of climb. Map, elevation profile and GPX download.`;
+        return page(fill(ROUTE_PAGE, { __ORIGIN__: url.origin, __TITLE__: escHtml(r.title), __SLUG__: r.slug, __DESC__: escHtml(desc) }, r));
+      }
       return Response.redirect(url.origin + "/", 302);
     } catch (e) {
       if (e instanceof ApiError) return json({ error: e.code, message: e.message }, e.status);
@@ -212,6 +233,28 @@ async function readBody(req) {
 
 function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
+}
+
+async function asset(env, url, p) {
+  if (!env.ASSETS) return null;
+  const res = await env.ASSETS.fetch(new Request(url.origin + p));
+  if (!res.ok) return null;
+  try { return await res.json(); } catch { return null; }
+}
+
+function fill(tpl, vars, data) {
+  let html = tpl;
+  for (const [k, v] of Object.entries(vars)) html = html.replaceAll(k, v);
+  // __DATA__ last, so nothing inside the data is treated as a placeholder
+  return html.replace("__DATA__", () => JSON.stringify(data).replace(/</g, "\\u003c"));
+}
+
+function page(html) {
+  return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
+}
+
+function escHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function b64(s) {

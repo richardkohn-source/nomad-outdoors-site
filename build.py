@@ -37,9 +37,18 @@ def og():
     return base64.b64encode(buf.getvalue()).decode()
 
 icons = {"i180": icon(180), "i192": icon(192), "i512": icon(512), "og": og()}
-worker = (src / "worker-src.js").read_text().replace("__HTML__", json.dumps(page)).replace("__HOME__", json.dumps((src / "home.html").read_text())).replace("__ICONS__", json.dumps(icons))
+def site_page(name):
+    html = (src / name).read_text()
+    for key, f in (("{{SITE_CSS}}", "site.css"), ("{{ROUTES_CSS}}", "routes.css"), ("{{NAV}}", "nav.html"), ("{{FOOTER}}", "footer.html")):
+        html = html.replace(key, (src / f).read_text())
+    return html
+
+worker = ((src / "worker-src.js").read_text()
+    .replace("__HTML__", json.dumps(page))
+    .replace("__HOME__", json.dumps(site_page("home.html")))
+    .replace("__ROUTES_PAGE__", json.dumps(site_page("routes.html")))
+    .replace("__ROUTE_PAGE__", json.dumps(site_page("route.html")))
+    .replace("__ICONS__", json.dumps(icons)))
 (root / "dist").mkdir(exist_ok=True)
 (root / "dist" / "_worker.js").write_text(worker)
-(root / "icon-preview.png").write_bytes(base64.b64decode(icons["i512"]))
-(root / "og-preview.png").write_bytes(base64.b64decode(icons["og"]))
 print("worker.js", len(worker), "bytes")
