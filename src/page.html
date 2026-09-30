@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Event board · Nomad Outdoors</title>
+<meta name="description" content="Upcoming drives, wadi trips and camps. Tap an event to see the details and sign up.">
+<meta property="og:title" content="Nomad Outdoors">
+<meta property="og:description" content="Upcoming drives, wadi trips and camps. Tap an event to see the details and sign up.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="__ORIGIN__/board">
+<meta name="robots" content="noindex">
+<meta property="og:site_name" content="Nomad Outdoors">
+<meta property="og:image" content="__ORIGIN__/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Nomad Outdoors: drives, wadis, camps and campfires">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#17201E">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nomad">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+html{-webkit-text-size-adjust:100%}
+body{margin:0;padding-top:env(safe-area-inset-top,0px)}
+[hidden]{display:none!important}
+{{STYLE}}
+.foot{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted)}
+.foot button{background:none;border:none;padding:0;color:var(--accent);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.person .tel{font-family:var(--mono);font-size:13px}
+.orgbar{background:var(--ink);color:var(--bg);font-size:12px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:6px 12px;border-radius:0 0 6px 6px;display:inline-block;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1><a href="/" style="color:inherit;text-decoration:none">Nomad Outdoors</a></h1>
+      <p>Event board</p>
+    </div>
+    <button class="btn primary" id="newBtn" hidden>Post an event</button>
+  </header>
+  <div id="notice" class="notice" hidden></div>
+  <main id="app"><p class="empty">Loading the board…</p></main>
+  <footer class="foot" id="foot"></footer>
+</div>
+
+<script>
+const TYPES = {
+  desert:   {label:"Desert drive", kit:"Recovery tracks\nShovel\nTyre deflator and compressor\nKinetic rope with soft shackles\nSand flag\nRadio or charged phone\n3 L water per person"},
+  wadi:     {label:"Wadi trip", kit:"Water shoes or sturdy sandals\nHat and sun cream\n3 L water per person\nSnacks\nDry bag for phone and keys\nSmall first aid kit"},
+  camping:  {label:"Camping", kit:"Tent, sleeping bag and mat\nHead torch\nCamp chair\nFirewood (one bundle per car)\nCool box with your own food and drink\nRubbish bags (we leave nothing behind)"},
+  overland: {label:"Overlanding", kit:"Full recovery kit\nSpare tyre and jack base plate\nCompressor\nFuel for the full route plus reserve\n5 L water per person\nOffline maps downloaded"},
+  social:   {label:"Social", kit:"Something to share, food or drink\nGood stories"}
+};
+const DIFF = ["Easy","Moderate","Hard","Expert"];
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = {
+  get(k){ try{ return localStorage.getItem(k) || ""; }catch(e){ return ""; } },
+  set(k,v){ try{ v ? localStorage.setItem(k,v) : localStorage.removeItem(k); }catch(e){} }
+};
+const S = {events:[], signups:[], ready:false, error:"", isOrg:false, view:{name:"list"}, flash:"", confirmDel:false};
+
+/* ---------- helpers ---------- */
+function todayISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+function parse(iso){ const [y,m,d]=iso.split("-").map(Number); return new Date(y,m-1,d); }
+function fmtDate(iso, opts){ return iso ? parse(iso).toLocaleDateString("en-GB", opts) : ""; }
+function dateRange(e){
+  const a = fmtDate(e.date,{weekday:"short",day:"numeric",month:"short"});
+  if(e.endDate && e.endDate !== e.date) return a + " to " + fmtDate(e.endDate,{weekday:"short",day:"numeric",month:"short"});
+  return a;
+}
+function daysUntil(iso){ return Math.round((parse(iso) - parse(todayISO()))/86400000); }
+function whenChip(e){ const n = daysUntil(e.date); return n < 0 ? "On now" : n === 0 ? "Today" : n === 1 ? "Tomorrow" : "In " + n + " days"; }
+function isUpcoming(e){ return (e.endDate || e.date) >= todayISO(); }
+function typeOf(e){ return TYPES[e.type] ? e.type : "social"; }
+function fmtPhone(p){ const m = /^\+971(\d{2})(\d{3})(\d{4})$/.exec(p||""); return m ? "+971 "+m[1]+" "+m[2]+" "+m[3] : (p||""); }
+function signupsFor(id){ return S.signups.filter(s => s.eventId === id).sort((a,b) => (a.at||"").localeCompare(b.at||"")); }
+function split(e){
+  const all = signupsFor(e.id), cap = Number(e.capacity) || 0;
+  return cap ? {going:all.slice(0,cap), waiting:all.slice(cap), cap} : {going:all, waiting:[], cap:0};
+}
+function mine(e){ return S.signups.find(s => s.eventId === e.id && s.mine); }
+function inForm(){ return ["edit","join","who","org"].includes(S.view.name); }
+
+/* ---------- API ---------- */
+async function api(path, body){
+  const headers = {"content-type":"application/json"};
+  const phone = store.get("no_phone"), code = store.get("no_org");
+  if(phone) headers["x-phone"] = phone;
+  if(code) headers["x-organiser-code"] = code;
+  const res = await fetch("/api" + path, {method: body ? "POST" : "GET", headers, body: body ? JSON.stringify(body) : undefined, cache:"no-store"});
+  let data = {}; try{ data = await res.json(); }catch(_){}
+  if(!res.ok){ const err = new Error(data.message || "Something went wrong."); err.code = data.error; throw err; }
+  return data;
+}
+async function load(){
+  try{
+    const d = await api("/board");
+    S.events = d.events; S.signups = d.signups; S.isOrg = !!d.organiser;
+    if(store.get("no_org") && !d.organiser) store.set("no_org","");
+    S.ready = true; S.error = "";
+  }catch(e){
+    S.error = e.code === "no_database" ? "The board isn't connected to its database yet. Check the D1 binding is called DB." : "Can't reach the board right now. Check your connection and pull to refresh.";
+  }
+  if(!inForm()) render();
+}
+
+/* ---------- views ---------- */
+function go(view){ S.view = view; S.confirmDel = false; render(); window.scrollTo(0,0); }
+
+function render(){
+  $("#newBtn").hidden = !(S.isOrg && S.view.name === "list");
+  const n = $("#notice");
+  n.hidden = !S.error; n.textContent = S.error;
+  const app = $("#app"), v = S.view;
+  if(!S.ready){ app.innerHTML = S.error ? "" : '<p class="empty">Loading the board…</p>'; renderFoot(); return; }
+  if(v.name === "detail") app.innerHTML = detailHTML(v.id);
+  else if(v.name === "join") app.innerHTML = joinHTML(v.id);
+  else if(v.name === "edit") app.innerHTML = editHTML(v.id);
+  else if(v.name === "who") app.innerHTML = whoHTML();
+  else if(v.name === "org") app.innerHTML = orgHTML();
+  else app.innerHTML = listHTML();
+  if(v.name === "edit") wireEdit(v.id);
+  if(v.name === "join") wireJoin(v.id);
+  if(v.name === "who") wireWho();
+  if(v.name === "org") wireOrg();
+  renderFoot();
+}
+
+function renderFoot(){
+  const name = store.get("no_name"), phone = store.get("no_phone");
+  let h = phone
+    ? '<span>This phone signs up as <b>'+esc(name || "you")+'</b> ('+esc(fmtPhone(phone))+'). <button data-go="who">Change</button></span>'
+    : '<span>Signed up from another phone? <button data-go="who">Enter your number</button> to see your sign-ups here.</span>';
+  h += S.isOrg ? '<span>Organiser mode is on. <button data-orgout>Switch off</button></span>' : '<span><button data-go="org">Organiser login</button></span>';
+  $("#foot").innerHTML = h;
+}
+
+function flashHTML(){ if(!S.flash) return ""; const f = S.flash; S.flash = ""; return '<div class="flash" role="status">'+esc(f)+'</div>'; }
+
+function countInfo(e){
+  const {going, cap} = split(e);
+  const pax = going.reduce((t,s) => t + (Number(s.people)||1), 0);
+  const chip = mine(e) ? '<span class="chip in">You\'re in</span>' : (cap && going.length >= cap ? '<span class="chip full">Full · waitlist</span>' : "");
+  return {cars:going.length, pax, cap, chip};
+}
+
+function listHTML(){
+  const up = S.events.filter(isUpcoming).sort((a,b) => (a.date+(a.meetTime||"")).localeCompare(b.date+(b.meetTime||"")));
+  const past = S.events.filter(e => !isUpcoming(e)).sort((a,b) => b.date.localeCompare(a.date)).slice(0,20);
+  let h = (S.isOrg ? '<span class="orgbar">Organiser mode</span>' : '') + flashHTML();
+  if(!up.length){
+    h += '<p class="empty">Nothing on the board yet. '+(S.isOrg ? 'Post the next drive and it will show here for everyone.' : 'Keep an eye on the WhatsApp group.')+'</p>';
+  } else {
+    const e = up[0], t = typeOf(e), c = countInfo(e), d = parse(e.date);
+    h += '<div class="label" style="margin-bottom:8px">Next up · '+esc(whenChip(e))+'</div>';
+    h += '<button class="ticket" data-open="'+esc(e.id)+'">'
+      + '<div class="stub"><span class="dow">'+d.toLocaleDateString("en-GB",{weekday:"short"}).toUpperCase()+'</span><span class="day">'+d.getDate()+'</span><span class="mon">'+d.toLocaleDateString("en-GB",{month:"short"}).toUpperCase()+'</span></div>'
+      + '<div class="ticket-body"><span class="tag t-'+t+'">'+esc(TYPES[t].label)+'</span>'
+      + '<h3>'+esc(e.title)+'</h3>'
+      + '<div class="meta">'+(e.meetTime?'<span>Meet <b class="mono">'+esc(e.meetTime)+'</b></span>':'')+(e.meetPoint?'<span>'+esc(e.meetPoint)+'</span>':'')+'</div>'
+      + '<div class="meta"><span><b class="mono">'+c.cars+(c.cap?'/'+c.cap:'')+'</b> '+(t==="social"?'signed up':'vehicles')+'</span><span><b class="mono">'+c.pax+'</b> people</span>'+(e.difficulty?'<span>'+esc(e.difficulty)+'</span>':'')+' '+c.chip+'</div>'
+      + (e.sponsorName ? '<div class="sponsor-line">Supported by '+esc(e.sponsorName)+'</div>' : '')
+      + '</div></button>';
+    if(up.length > 1) h += '<h2 class="section">Coming up</h2><div class="list">' + up.slice(1).map(rowHTML).join("") + '</div>';
+  }
+  if(past.length) h += '<details class="past"><summary>Past events ('+past.length+')</summary><div class="list">'+past.map(rowHTML).join("")+'</div></details>';
+  return h;
+}
+
+function rowHTML(e){
+  const t = typeOf(e), c = countInfo(e), d = parse(e.date);
+  return '<button class="row" data-open="'+esc(e.id)+'">'
+    + '<div class="dblock"><div class="m">'+d.toLocaleDateString("en-GB",{weekday:"short"}).toUpperCase()+'</div><div class="d">'+d.getDate()+'</div><div class="m">'+d.toLocaleDateString("en-GB",{month:"short"}).toUpperCase()+'</div></div>'
+    + '<div><span class="tag t-'+t+'">'+esc(TYPES[t].label)+'</span><h4>'+esc(e.title)+'</h4><div class="sub">'+(e.meetTime?'Meet '+esc(e.meetTime)+' · ':'')+esc(e.meetPoint||"")+'</div></div>'
+    + '<div class="count"><b>'+c.cars+(c.cap?'/'+c.cap:'')+'</b>'+(t==="social"?'in':'cars')+'<br>'+c.chip+'</div>'
+    + '</button>';
+}
+
+function detailHTML(id){
+  const e = S.events.find(x => x.id === id);
+  if(!e) return '<button class="btn link back" data-go="list">← All events</button><p class="empty">This event has been removed.</p>';
+  const t = typeOf(e), {going, waiting, cap} = split(e), me = mine(e), up = isUpcoming(e);
+  const pax = going.reduce((a,s) => a + (Number(s.people)||1), 0);
+  const kit = (e.kit||"").split("\n").map(s => s.trim()).filter(Boolean);
+  const bringing = going.concat(waiting).map(s => s.bringing).filter(Boolean);
+  let h = '<button class="btn link back" data-go="list">← All events</button>' + flashHTML();
+  h += '<div class="detail-head"><span class="tag t-'+t+'">'+esc(TYPES[t].label)+'</span><h2>'+esc(e.title)+'</h2>'
+    + '<div class="meta"><span>'+esc(dateRange(e))+'</span><span class="chip">'+(up?esc(whenChip(e)):'Past')+'</span>'+(e.organiser?'<span>Organised by <b>'+esc(e.organiser)+'</b></span>':'')+'</div></div>';
+
+  const facts = [];
+  if(e.meetTime) facts.push(['Meet at','<span class="mono">'+esc(e.meetTime)+'</span>']);
+  if(e.meetPoint) facts.push(['Meeting point', esc(e.meetPoint) + (e.mapLink && /^https?:\/\//i.test(e.mapLink) ? ' · <a href="'+esc(e.mapLink)+'" target="_blank" rel="noopener">Map pin ↗</a>' : '')]);
+  if(e.radio) facts.push(['Radio channel','<span class="mono">'+esc(e.radio)+'</span>']);
+  if(e.destination) facts.push(['Heading to', esc(e.destination)]);
+  if(e.difficulty) facts.push(['Difficulty', esc(e.difficulty)]);
+  if(e.requirement) facts.push(['Vehicle / fitness', esc(e.requirement)]);
+  facts.push(['Signed up', '<span class="mono">'+going.length+(cap?' of '+cap:'')+'</span> '+(t==="social"?'':'vehicles, ')+'<span class="mono">'+pax+'</span> people'+(waiting.length?' · '+waiting.length+' waiting':'')]);
+  h += '<div class="facts">'+facts.map(f => '<div class="fact"><span class="label">'+f[0]+'</span><span class="v">'+f[1]+'</span></div>').join("")+'</div>';
+
+  if(e.details) h += '<p class="prose">'+esc(e.details)+'</p>';
+  if(e.sponsorName) h += '<div class="sponsor"><span class="label">Sponsor</span><strong>'+esc(e.sponsorName)+'</strong>'+(e.sponsorOffer?'<span>'+esc(e.sponsorOffer)+'</span>':'')+'</div>';
+
+  h += '<div class="actions">';
+  if(up){
+    h += me ? '<button class="btn" data-join="'+esc(e.id)+'">Change my details</button><button class="btn danger" data-leave="'+esc(e.id)+'">I can\'t make it</button>'
+            : '<button class="btn primary" data-join="'+esc(e.id)+'">'+(cap && going.length >= cap ? 'Join the waitlist' : 'I\'m in')+'</button>';
+  }
+  h += '<button class="btn" data-copy="'+esc(e.id)+'">Copy for WhatsApp</button>';
+  if(S.isOrg) h += '<button class="btn" data-copylist="'+esc(e.id)+'">Copy list with numbers</button><button class="btn link" data-edit="'+esc(e.id)+'">Edit event</button>';
+  h += '</div><div id="copyOut"></div>';
+
+  if(kit.length) h += '<h2 class="section">What to bring</h2><ul class="kit">'+kit.map(k => '<li>'+esc(k)+'</li>').join("")+'</ul>';
+  h += '<h2 class="section">Who\'s coming</h2>';
+  h += going.length ? '<div class="people">'+going.map((s,i) => personHTML(s,i+1,false)).join("")+'</div>' : '<p class="empty">No one yet. Be the first.</p>';
+  if(waiting.length) h += '<h2 class="section" style="font-size:18px">Waitlist</h2><div class="people">'+waiting.map((s,i) => personHTML(s,i+1,true)).join("")+'</div>';
+  if(bringing.length) h += '<div style="margin-top:16px"><span class="label">Already covered</span><div class="bringing">'+bringing.map(b => '<span>'+esc(b)+'</span>').join("")+'</div></div>';
+  return h;
+}
+
+function personHTML(s, n, wait){
+  const bits = [s.vehicle, s.bringing ? 'Bringing '+s.bringing : '', s.note].filter(Boolean).map(esc).join(' · ');
+  const tel = s.phone ? '<div class="tel"><a href="tel:'+esc(s.phone)+'">'+esc(fmtPhone(s.phone))+'</a></div>' : '';
+  return '<div class="person'+(wait?' wait':'')+'"><span class="n">'+String(n).padStart(2,"0")+'</span><div><div class="who">'+esc(s.name)+(s.mine?' (you)':'')+'</div>'+(bits?'<div class="what">'+bits+'</div>':'')+tel+'</div><span class="pax">'+(Number(s.people)||1)+' pax</span></div>';
+}
+
+function joinHTML(id){
+  const e = S.events.find(x => x.id === id);
+  if(!e) return detailHTML(id);
+  const me = mine(e) || {}, t = typeOf(e);
+  const name = me.name || store.get("no_name"), vehicle = me.vehicle || store.get("no_vehicle"), phone = store.get("no_phone");
+  return '<button class="btn link back" data-go="detail" data-id="'+esc(id)+'">← Back to event</button>'
+    + '<div class="detail-head"><span class="label">'+esc(dateRange(e))+'</span><h2>'+esc(e.title)+'</h2></div>'
+    + '<form id="joinForm" novalidate>'
+    + '<div class="two"><div class="field"><label for="j-name">Your name</label><input id="j-name" required maxlength="60" value="'+esc(name)+'" autocomplete="name"></div>'
+    + '<div class="field"><label for="j-phone">Mobile number</label><input id="j-phone" type="tel" inputmode="tel" required maxlength="20" placeholder="050 123 4567" value="'+esc(fmtPhone(phone))+'" autocomplete="tel"'+(me.eventId?' readonly':'')+'><span class="hint">Only organisers see this, so we can call if you\'re running late.</span></div></div>'
+    + '<div class="two">'
+    + (t!=="social" ? '<div class="field"><label for="j-vehicle">Vehicle</label><input id="j-vehicle" maxlength="60" placeholder="e.g. Patrol Y62, Wrangler JL" value="'+esc(vehicle)+'"></div>' : '')
+    + '<div class="field"><label for="j-people">People '+(t!=="social"?'in your car':'coming')+'</label><input id="j-people" type="number" inputmode="numeric" min="1" max="12" value="'+esc(me.people||1)+'"></div>'
+    + '</div>'
+    + '<div class="field"><label for="j-bring">What you\'re bringing to share</label><input id="j-bring" maxlength="80" placeholder="e.g. firewood, dessert, coffee kit" value="'+esc(me.bringing||"")+'"><span class="hint">Shows on the event so we don\'t end up with twelve bags of crisps.</span></div>'
+    + '<div class="field"><label for="j-note">Anything else</label><input id="j-note" maxlength="120" placeholder="e.g. first dune drive, happy to take a passenger" value="'+esc(me.note||"")+'"></div>'
+    + '<div id="j-err" class="err" role="alert"></div>'
+    + '<div class="actions"><button class="btn primary" type="submit" id="j-save">'+(me.eventId?'Save changes':'Count me in')+'</button></div>'
+    + '</form>';
+}
+
+function whoHTML(){
+  return '<button class="btn link back" data-go="list">← All events</button>'
+    + '<div class="detail-head"><h2>Who\'s on this phone?</h2></div>'
+    + '<form id="whoForm" novalidate>'
+    + '<p class="prose" style="margin:0">Enter the name and number you sign up with. This phone will remember you, and any events you\'ve already joined will show as yours.</p>'
+    + '<div class="field"><label for="w-name">Your name</label><input id="w-name" maxlength="60" value="'+esc(store.get("no_name"))+'" autocomplete="name"></div>'
+    + '<div class="field"><label for="w-phone">Mobile number</label><input id="w-phone" type="tel" inputmode="tel" maxlength="20" placeholder="050 123 4567" value="'+esc(fmtPhone(store.get("no_phone")))+'" autocomplete="tel"></div>'
+    + '<div id="w-err" class="err" role="alert"></div>'
+    + '<div class="actions"><button class="btn primary" type="submit">Save</button>'+(store.get("no_phone")?'<button class="btn link" type="button" data-forget>Forget me on this phone</button>':'')+'</div>'
+    + '</form>';
+}
+
+function orgHTML(){
+  return '<button class="btn link back" data-go="list">← All events</button>'
+    + '<div class="detail-head"><h2>Organiser login</h2></div>'
+    + '<form id="orgForm" novalidate>'
+    + '<p class="prose" style="margin:0">Organisers can post and edit events and see members\' numbers. Ask Richard for the code.</p>'
+    + '<div class="field"><label for="o-code">Organiser code</label><input id="o-code" type="password" autocomplete="current-password" maxlength="80"></div>'
+    + '<div id="o-err" class="err" role="alert"></div>'
+    + '<div class="actions"><button class="btn primary" type="submit" id="o-save">Log in</button></div>'
+    + '</form>';
+}
+
+function editHTML(id){
+  const e = id ? (S.events.find(x => x.id === id) || {}) : {type:"desert", kit:TYPES.desert.kit, difficulty:"Moderate", organiser:store.get("no_name")};
+  const opt = (val, lab, cur) => '<option value="'+esc(val)+'"'+(val===cur?' selected':'')+'>'+esc(lab)+'</option>';
+  const f = (fid, lab, val, extra='', hint='') => '<div class="field"><label for="'+fid+'">'+lab+'</label><input id="'+fid+'" value="'+esc(val||"")+'" '+extra+'>'+(hint?'<span class="hint">'+hint+'</span>':'')+'</div>';
+  return '<button class="btn link back" data-go="'+(id?'detail':'list')+'" data-id="'+esc(id||"")+'">← '+(id?'Back to event':'All events')+'</button>'
+    + '<div class="detail-head"><h2>'+(id?'Edit event':'Post an event')+'</h2></div>'
+    + '<form id="editForm" novalidate>'
+    + f("e-title","Event name",e.title,'required maxlength="70" placeholder="e.g. Big Red sunset run"')
+    + '<div class="two"><div class="field"><label for="e-type">Type</label><select id="e-type">'+Object.entries(TYPES).map(([k,v]) => opt(k,v.label,e.type)).join("")+'</select></div>'
+    + '<div class="field"><label for="e-diff">Difficulty</label><select id="e-diff">'+opt("","Not relevant",e.difficulty||"")+DIFF.map(d => opt(d,d,e.difficulty)).join("")+'</select></div></div>'
+    + '<div class="two">'+f("e-date","Date",e.date,'type="date" required')+f("e-end","Ends (overnight trips)",e.endDate,'type="date"')+'</div>'
+    + '<div class="two">'+f("e-time","Meet time",e.meetTime,'type="time"')+f("e-cap","Max vehicles",e.capacity||"",'type="number" inputmode="numeric" min="1" max="60" placeholder="No limit"','Extra sign-ups go on a waitlist.')+'</div>'
+    + f("e-meet","Meeting point",e.meetPoint,'maxlength="90" placeholder="e.g. ADNOC Al Qudra Rd, by the air pumps"')
+    + '<div class="two">'+f("e-map","Map pin link",e.mapLink,'type="url" placeholder="Paste a Google Maps link"')+f("e-radio","Radio channel",e.radio,'maxlength="40" placeholder="e.g. PMR 3, CTCSS 12"','Tune in before you arrive.')+'</div>'
+    + f("e-dest","Heading to",e.destination,'maxlength="90" placeholder="e.g. Fossil Rock, Hatta, Liwa"')
+    + f("e-req","Vehicle or fitness requirement",e.requirement,'maxlength="90" placeholder="e.g. 4x4 with low range, aired down to 15 psi"')
+    + f("e-org","Organised by",e.organiser,'maxlength="60"')
+    + '<div class="field"><label for="e-details">Details</label><textarea id="e-details" maxlength="1500" placeholder="Route, plan for the day, anything people should know">'+esc(e.details||"")+'</textarea></div>'
+    + '<div class="field"><label for="e-kit">What to bring</label><textarea id="e-kit" maxlength="1200">'+esc(e.kit||"")+'</textarea><span class="hint">One item per line. Changing the type fills in a starter list.</span></div>'
+    + '<fieldset><legend>Sponsor (optional)</legend>'+f("e-spn","Sponsor",e.sponsorName,'maxlength="60" placeholder="Company or person"')+f("e-spo","What they\'re offering the group",e.sponsorOffer,'maxlength="160" placeholder="e.g. a new recovery kit to one member after the drive"')+'</fieldset>'
+    + '<div id="e-err" class="err" role="alert"></div>'
+    + '<div class="actions"><button class="btn primary" type="submit" id="e-save">'+(id?'Save changes':'Post to the board')+'</button>'
+    + (id ? '<span id="delZone"><button type="button" class="btn link" data-del>Delete event</button></span>' : '')
+    + '</div></form>';
+}
+
+/* ---------- wiring ---------- */
+function wireEdit(id){
+  const type = $("#e-type"), kit = $("#e-kit");
+  type.addEventListener("change", () => {
+    const cur = kit.value.trim();
+    if(!cur || Object.values(TYPES).some(t => t.kit === cur)) kit.value = TYPES[type.value].kit;
+  });
+  $("#editForm").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const val = s => $(s).value.trim(), err = $("#e-err"); err.textContent = "";
+    const data = {
+      id, title:val("#e-title"), type:type.value, difficulty:val("#e-diff"), date:val("#e-date"), endDate:val("#e-end"),
+      meetTime:val("#e-time"), capacity:val("#e-cap") ? Number(val("#e-cap")) : 0, meetPoint:val("#e-meet"), mapLink:val("#e-map"),
+      radio:val("#e-radio"), destination:val("#e-dest"), requirement:val("#e-req"), organiser:val("#e-org"),
+      details:$("#e-details").value.trim(), kit:kit.value.trim(), sponsorName:val("#e-spn"), sponsorOffer:val("#e-spo")
+    };
+    if(!data.title){ err.textContent = "Give the event a name."; $("#e-title").focus(); return; }
+    if(!data.date){ err.textContent = "Pick a date."; $("#e-date").focus(); return; }
+    if(data.endDate && data.endDate < data.date){ err.textContent = "The end date is before the start date."; return; }
+    if(data.mapLink && !/^https?:\/\//i.test(data.mapLink)){ err.textContent = "The map link should start with https://"; return; }
+    $("#e-save").disabled = true;
+    try{
+      const r = await api("/events", data);
+      if(!id && data.organiser && !store.get("no_name")) store.set("no_name", data.organiser);
+      S.flash = id ? "Changes saved." : "Posted. Tap Copy for WhatsApp to tell the group.";
+      await load(); go({name:"detail", id:r.id});
+    }catch(e){ err.textContent = e.message; $("#e-save").disabled = false; }
+  });
+}
+
+function wireJoin(id){
+  $("#joinForm").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const err = $("#j-err"); err.textContent = "";
+    const name = $("#j-name").value.trim(), phone = $("#j-phone").value.trim();
+    if(!name){ err.textContent = "Add your name so people know who's coming."; $("#j-name").focus(); return; }
+    if(phone.replace(/\D/g,"").length < 8){ err.textContent = "Add your mobile number so we can reach you on the day."; $("#j-phone").focus(); return; }
+    const vehicle = $("#j-vehicle") ? $("#j-vehicle").value.trim() : "";
+    const wasIn = !!mine(S.events.find(x => x.id === id) || {id});
+    $("#j-save").disabled = true;
+    try{
+      const r = await api("/signup", {eventId:id, name, phone, vehicle, people:Number($("#j-people").value)||1, bringing:$("#j-bring").value.trim(), note:$("#j-note").value.trim()});
+      store.set("no_name", name); store.set("no_phone", r.phone); if(vehicle) store.set("no_vehicle", vehicle);
+      S.flash = wasIn ? "Your details are updated." : (r.waitlisted ? "The event is full, so you're on the waitlist. We'll shout if a space opens." : "You're on the list. See you there.");
+      S.view = {name:"detail", id}; await load(); window.scrollTo(0,0);
+    }catch(e){ err.textContent = e.message; $("#j-save").disabled = false; }
+  });
+}
+
+function wireWho(){
+  $("#whoForm").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const err = $("#w-err"); err.textContent = "";
+    const name = $("#w-name").value.trim(), phone = $("#w-phone").value.trim();
+    if(phone.replace(/\D/g,"").length < 8){ err.textContent = "That number looks too short."; return; }
+    try{
+      const r = await api("/phone", {phone});
+      store.set("no_name", name); store.set("no_phone", r.phone);
+      S.flash = "Saved. This phone now knows who you are."; S.view = {name:"list"}; await load();
+    }catch(e){ err.textContent = e.message; }
+  });
+}
+
+function wireOrg(){
+  $("#orgForm").addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const err = $("#o-err"), code = $("#o-code").value.trim(); err.textContent = "";
+    if(!code) return;
+    $("#o-save").disabled = true;
+    try{
+      await api("/organiser", {code});
+      store.set("no_org", code); S.flash = "Organiser mode is on. You can post events and see numbers.";
+      S.view = {name:"list"}; await load();
+    }catch(e){ err.textContent = e.message; $("#o-save").disabled = false; }
+  });
+}
+
+function whatsappText(e){
+  const {going, cap} = split(e), t = typeOf(e);
+  const kit = (e.kit||"").split("\n").map(s => s.trim()).filter(Boolean);
+  const lines = ["*"+e.title+"*", TYPES[t].label+(e.difficulty?" · "+e.difficulty:""), "📅 "+dateRange(e)+(e.meetTime?" · meet "+e.meetTime:"")];
+  if(e.meetPoint) lines.push("📍 "+e.meetPoint);
+  if(e.mapLink) lines.push(e.mapLink);
+  if(e.radio) lines.push("📻 Radio: "+e.radio);
+  if(e.destination) lines.push("➡️ "+e.destination);
+  if(e.requirement) lines.push("🚙 "+e.requirement);
+  if(e.sponsorName) lines.push("🎁 Supported by "+e.sponsorName+(e.sponsorOffer?": "+e.sponsorOffer:""));
+  lines.push("", (t==="social"?"Signed up: ":"Vehicles in: ")+going.length+(cap?"/"+cap:""));
+  if(going.length) lines.push(going.map(s => s.name).join(", "));
+  if(kit.length) lines.push("", "Bring: "+kit.join(", "));
+  lines.push("", "Sign up here: "+location.origin+"/board");
+  return lines.join("\n");
+}
+function listText(e){
+  const {going, waiting} = split(e);
+  const row = (s,i) => (i+1)+". "+s.name+" · "+fmtPhone(s.phone)+(s.vehicle?" · "+s.vehicle:"")+" · "+(s.people||1)+" pax";
+  let t = e.title+" ("+dateRange(e)+")\n\n"+going.map(row).join("\n");
+  if(waiting.length) t += "\n\nWaitlist\n"+waiting.map(row).join("\n");
+  return t;
+}
+async function copyText(btn, text){
+  const label = btn.textContent;
+  try{ await navigator.clipboard.writeText(text); btn.textContent = "Copied ✓"; setTimeout(() => { btn.textContent = label; }, 2000); }
+  catch(_){
+    $("#copyOut").innerHTML = '<div class="field" style="margin-bottom:16px"><label for="wa-text">Copy this text</label><textarea id="wa-text" rows="10" readonly></textarea></div>';
+    const ta = $("#wa-text"); ta.value = text; ta.focus(); ta.select();
+  }
+}
+
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("button"); if(!b) return;
+  if(b.id === "newBtn") return go({name:"edit", id:null});
+  if(b.dataset.open) return go({name:"detail", id:b.dataset.open});
+  if(b.dataset.go) return go(b.dataset.id ? {name:b.dataset.go, id:b.dataset.id} : {name: b.dataset.go === "detail" ? "list" : b.dataset.go});
+  if(b.dataset.join) return go({name:"join", id:b.dataset.join});
+  if(b.dataset.edit) return go({name:"edit", id:b.dataset.edit});
+  if(b.dataset.copy){ const e = S.events.find(x => x.id === b.dataset.copy); if(e) copyText(b, whatsappText(e)); return; }
+  if(b.dataset.copylist){ const e = S.events.find(x => x.id === b.dataset.copylist); if(e) copyText(b, listText(e)); return; }
+  if(b.dataset.leave){
+    b.disabled = true;
+    try{ await api("/cancel", {eventId:b.dataset.leave, phone:store.get("no_phone")}); S.flash = "You're off the list. Maybe next time."; await load(); }
+    catch(e){ b.disabled = false; S.flash = e.message; render(); }
+    return;
+  }
+  if(b.hasAttribute("data-forget")){ store.set("no_phone",""); store.set("no_name",""); store.set("no_vehicle",""); S.flash = "This phone has forgotten you."; S.view = {name:"list"}; await load(); return; }
+  if(b.hasAttribute("data-orgout")){ store.set("no_org",""); S.isOrg = false; S.flash = "Organiser mode is off."; go({name:"list"}); load(); return; }
+  if(b.hasAttribute("data-del")){ $("#delZone").innerHTML = '<span class="confirm">Delete this event and its sign-ups? <button type="button" class="btn danger small" data-delyes>Delete</button><button type="button" class="btn link" data-delno>Keep it</button></span>'; return; }
+  if(b.hasAttribute("data-delno")){ $("#delZone").innerHTML = '<button type="button" class="btn link" data-del>Delete event</button>'; return; }
+  if(b.hasAttribute("data-delyes")){
+    b.disabled = true;
+    try{ await api("/events/delete", {id:S.view.id}); S.flash = "Event deleted."; S.view = {name:"list"}; await load(); window.scrollTo(0,0); }
+    catch(e){ b.disabled = false; $("#e-err").textContent = e.message; }
+  }
+});
+
+setInterval(() => { if(document.visibilityState === "visible" && !inForm()) load(); }, 30000);
+document.addEventListener("visibilitychange", () => { if(document.visibilityState === "visible" && !inForm()) load(); });
+render();
+load();
+</script>
+</body>
+</html>

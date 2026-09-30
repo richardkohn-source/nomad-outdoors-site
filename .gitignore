@@ -1,0 +1,5 @@
+__pycache__/
+.wrangler/
+.dev.vars
+node_modules/
+*.png

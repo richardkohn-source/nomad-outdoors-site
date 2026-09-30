@@ -1,0 +1,8 @@
+name = "nomad-outdoors"
+main = "dist/_worker.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nomad-outdoors"
+database_id = "PASTE-YOUR-D1-DATABASE-ID"
