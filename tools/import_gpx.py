@@ -53,6 +53,24 @@ AREA_TYPE = {"Khatt, Ras Al Khaimah": "wadi", "Hatta": "wadi"}
 GENERIC_NAME = re.compile(r"^(new track|untitled|track|(mon|tues|wednes|thurs|fri|satur|sun)day\b.*(activity|offroading|drive|saudi))", re.I)
 DATE_BITS = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)
 
+LEVELS = [  # notation used in track names -> difficulty shown on the site
+    (re.compile(r"(?i)\bfewbie\b[ .:-]*"), "Fewbie"),
+    (re.compile(r"(?i)\bnewbie\b[ .:-]*"), "Newbie"),
+    (re.compile(r"\bIM\b"), "Intermediate"),
+    (re.compile(r"(?i)\bintermediate\b"), "Intermediate"),
+    (re.compile(r"(?i)\b(adv|advanced)\b"), "Advanced"),
+]
+
+def level_and_title(nice):
+    """Split a cleaned name into (difficulty, title without the notation)."""
+    level = None
+    for rx, name in LEVELS:
+        if rx.search(nice):
+            level = level or name
+            nice = rx.sub(" ", nice)
+    nice = re.sub(r"\s{2,}", " ", nice).strip(" .:-")
+    return level, (nice[0].upper() + nice[1:]) if nice else ""
+
 def clean_name(name):
     """Gaia track name minus dates and clutter; empty if it's a default name."""
     n = DATE_BITS.sub("", name or "")
@@ -233,7 +251,8 @@ def process(name, pts, meta):
     if "title" not in m:
         place = area or country or "Off-road route"
         m.update({
-            "title": nice or (f"{place}" + (" overland" if st["distance_km"] > 150 else "") + (f", {day.strftime('%B %Y')}" if day else "")),
+            "difficulty": level_and_title(nice)[0] if nice else None,
+            "title": (level_and_title(nice)[1] if nice else "") or (f"{place}" + (" overland" if st["distance_km"] > 150 else "") + (f", {day.strftime('%B %Y')}" if day else "")),
             "type": "overland" if st["distance_km"] > 150 else AREA_TYPE.get(area, "desert"),
             "notes": "", "vehicle": "", "hidden": False, "featured": False,
             "gaia_name": name, "draft_title": True,
@@ -260,6 +279,7 @@ def process(name, pts, meta):
         "date": day.isoformat() if day else None,
         "start_local": (t0 + datetime.timedelta(hours=4)).strftime("%H:%M") if t0 else None,
         "notes": m.get("notes", ""), "vehicle": m.get("vehicle", ""), "featured": bool(m.get("featured")),
+        "difficulty": m.get("difficulty"),
         "hidden": bool(m.get("hidden")), "camps_removed": camps, **st,
         "bbox": [min(lats), min(lons), max(lats), max(lons)],
         "centre": [round(lat0, 4), round(lon0, 4)],
@@ -310,7 +330,7 @@ def main(args):
     # meta may override computed fields after an edit
     for r in routes:
         m = meta[r["slug"]]
-        for k in ("title", "type", "notes", "vehicle", "featured", "hidden", "area"):
+        for k in ("title", "type", "notes", "vehicle", "featured", "hidden", "area", "difficulty"):
             if k in m and m[k] not in (None, ""): r[k] = m[k]
     META.write_text(json.dumps(dict(sorted(meta.items())), indent=2, ensure_ascii=False) + "\n")
 
@@ -326,7 +346,7 @@ def main(args):
             "countries": sorted({r["country"] for r in visible if r["country"]}),
             "areas": len({r["area"] for r in visible if r["area"]}),
         },
-        "routes": [{k: r[k] for k in ("slug", "title", "type", "area", "country", "date", "distance_km", "moving_min",
+        "routes": [{k: r[k] for k in ("slug", "title", "type", "area", "country", "date", "difficulty", "distance_km", "moving_min",
                                       "duration_min", "ascent_m", "featured", "thumb")} for r in visible],
     }
     (OUT / "index.json").write_text(json.dumps(index, separators=(",", ":"), ensure_ascii=False))

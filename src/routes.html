@@ -95,7 +95,7 @@ function draw(){
     const t = LABEL[r.type] ? r.type : "desert";
     return '<a class="rcard" href="/routes/'+esc(r.slug)+'">'
       + '<div class="thumb">'+thumb(r.thumb)+'</div>'
-      + '<div class="rbody"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>'
+      + '<div class="rbody"><div class="tagrow"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>'+(r.difficulty ? '<span class="lvl">'+esc(r.difficulty)+'</span>' : '')+'</div>'
       + '<h2>'+esc(r.title)+'</h2>'
       + '<p class="rmeta">'+esc(fmtDate(r.date))+(r.country?' · '+esc(r.country):'')+'</p>'
       + '<p class="rstats"><span><b>'+r.distance_km+'</b> km</span><span><b>'+esc(hm(r.moving_min))+'</b> moving</span><span><b>'+nf(r.ascent_m)+'</b> m climb</span></p>'

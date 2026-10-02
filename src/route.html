@@ -73,12 +73,13 @@ const nf = n => n == null ? "–" : Number(n).toLocaleString("en-GB");
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 const t = LABEL[R.type] ? R.type : "desert";
-$("#kind").innerHTML = '<span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>';
+$("#kind").innerHTML = '<span class="tagrow"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>'+(R.difficulty ? '<span class="lvl">'+esc(R.difficulty)+'</span>' : '')+'</span>';
 $("#title").textContent = R.title;
 const when = R.date ? new Date(R.date+"T00:00:00").toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"}) : "";
 $("#meta").textContent = [when, R.area && R.area !== R.title ? R.area : null, R.country].filter(Boolean).join(" · ");
 
 $("#stats").innerHTML = [
+  ...(R.difficulty ? [["Level", R.difficulty]] : []),
   ["Distance", R.distance_km+" km"], ["Moving time", hm(R.moving_min)], ["Total time", hm(R.duration_min)],
   ["Climb", nf(R.ascent_m)+" m"], ["Highest point", nf(R.ele_max_m)+" m"]
 ].map(s => '<div><dt>'+s[0]+'</dt><dd>'+esc(s[1])+'</dd></div>').join("");

@@ -215,7 +215,7 @@
     const pick = D.routes.filter(r => r.featured).concat(D.routes.filter(r => !r.featured)).slice(0,3);
     document.getElementById("hroutes").innerHTML = pick.map(r => {
       const t = LABEL[r.type] ? r.type : "desert";
-      return '<a class="rcard" href="/routes/'+esc(r.slug)+'"><div class="thumb">'+thumb(r.thumb)+'</div><div class="rbody"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span><h3>'+esc(r.title)+'</h3><p class="rstats"><span><b>'+r.distance_km+'</b> km</span><span><b>'+esc(hm(r.moving_min))+'</b> moving</span></p></div></a>';
+      return '<a class="rcard" href="/routes/'+esc(r.slug)+'"><div class="thumb">'+thumb(r.thumb)+'</div><div class="rbody"><div class="tagrow"><span class="tag t-'+t+'">'+esc(LABEL[t])+'</span>'+(r.difficulty ? '<span class="lvl">'+esc(r.difficulty)+'</span>' : '')+'</div><h3>'+esc(r.title)+'</h3><p class="rstats"><span><b>'+r.distance_km+'</b> km</span><span><b>'+esc(hm(r.moving_min))+'</b> moving</span></p></div></a>';
     }).join("");
   }catch(_){}
 })();
