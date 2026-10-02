@@ -12,8 +12,8 @@ Editable titles, notes and flags live in content/routes/meta.json; the importer
 adds new routes there with working titles and never overwrites your edits.
 
 Privacy: waypoints are never copied; the first and last PRIVACY_TRIM_M metres of
-every track are removed; any stop longer than CAMP_STOP_H hours (an overnight
-camp) is cut out along with CAMP_RADIUS_M around it.
+every track are removed; stops that look like camps (CAMP_LONG_H hours, or CAMP_STOP_H hours
+overnight) are cut out along with the area around them.
 """
 import json, math, re, shutil, sys, pathlib, datetime
 import xml.etree.ElementTree as ET
@@ -25,7 +25,8 @@ OUT = ROOT / "dist" / "data" / "routes"
 SITE = "https://www.nomadoutdoors.org"
 
 PRIVACY_TRIM_M = 500
-CAMP_STOP_H = 2.0
+CAMP_STOP_H = 2.0       # overnight stop
+CAMP_LONG_H = 4.0       # any stop this long
 CAMP_RADIUS_M = 300
 MAP_TOLERANCE_M = 8       # track simplification for the map
 THUMB_POINTS = 70         # points in the list thumbnail
@@ -36,7 +37,9 @@ AREAS = [
     ("Al Qudra", "UAE", 24.80, 55.38, 22),
     ("Lisaili and Al Faqa", "UAE", 24.85, 55.58, 18),
     ("Sweihan", "UAE", 24.45, 55.33, 25),
-    ("Fossil Rock", "UAE", 25.18, 55.83, 15),
+    ("Fossil Rock and Maleiha", "UAE", 25.15, 55.80, 12),
+    ("Big Red", "UAE", 25.03, 55.71, 8),
+    ("Khatt, Ras Al Khaimah", "UAE", 25.62, 56.05, 15),
     ("Al Dhaid and Falaj Al Mualla", "UAE", 25.40, 55.88, 25),
     ("Hatta", "UAE", 24.80, 56.12, 20),
     ("Liwa", "UAE", 23.10, 53.70, 70),
@@ -45,6 +48,19 @@ AREAS = [
     ("Great Nafud, Ha'il", "Saudi Arabia", 28.20, 41.00, 150),
     ("Eastern Province near Qatar", "Saudi Arabia", 24.20, 51.20, 60),
 ]
+AREA_TYPE = {"Khatt, Ras Al Khaimah": "wadi", "Hatta": "wadi"}
+
+GENERIC_NAME = re.compile(r"^(new track|untitled|track|(mon|tues|wednes|thurs|fri|satur|sun)day\b.*(activity|offroading|drive|saudi))", re.I)
+DATE_BITS = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)
+
+def clean_name(name):
+    """Gaia track name minus dates and clutter; empty if it's a default name."""
+    n = DATE_BITS.sub("", name or "")
+    n = re.sub(r"\s{2,}", " ", n).strip(" .-_")
+    n = re.sub(r"(?i)^fewbie\b[ .:-]*", "Fewbie: ", n)
+    if not n or GENERIC_NAME.match(n): return ""
+    return n[0].upper() + n[1:]
+
 COUNTRY_BOXES = [  # fallback when no named area matches: (name, lat_min, lat_max, lon_min, lon_max)
     ("UAE", 22.6, 26.1, 51.6, 56.4), ("Oman", 16.6, 26.4, 52.0, 59.9), ("Saudi Arabia", 16.3, 32.2, 34.5, 55.7),
 ]
@@ -84,6 +100,19 @@ def trim_ends(pts, metres):
     a = cut(pts); b = len(pts) - cut(pts[::-1])
     return pts[a:b] if b - a >= 10 else pts
 
+def is_camp(t_from, t_to):
+    """A stop counts as a camp if it lasts CAMP_LONG_H, or CAMP_STOP_H overlapping the night (21:00-05:00 Gulf time).
+    Being stuck in the sand for a couple of hours in daylight is not a camp."""
+    hours = (t_to - t_from).total_seconds() / 3600
+    if hours >= CAMP_LONG_H: return True
+    if hours < CAMP_STOP_H: return False
+    t = t_from
+    while t <= t_to:
+        h = (t + datetime.timedelta(hours=4)).hour
+        if h >= 21 or h < 5: return True
+        t += datetime.timedelta(minutes=15)
+    return False
+
 def cut_camps(pts):
     """Remove long stationary periods (overnight camps) and the area around them.
     Returns (segments, number_of_camps_removed)."""
@@ -93,7 +122,7 @@ def cut_camps(pts):
         j = i
         while j + 1 < n and hav((pts[i]["lat"], pts[i]["lon"]), (pts[j+1]["lat"], pts[j+1]["lon"])) < CAMP_RADIUS_M:
             j += 1
-        if pts[i]["t"] and pts[j]["t"] and (pts[j]["t"] - pts[i]["t"]).total_seconds() >= CAMP_STOP_H * 3600:
+        if pts[i]["t"] and pts[j]["t"] and is_camp(pts[i]["t"], pts[j]["t"]):
             centre = (pts[i]["lat"], pts[i]["lon"])
             while cur and hav((cur[-1]["lat"], cur[-1]["lon"]), centre) < CAMP_RADIUS_M * 3: cur.pop()
             if len(cur) >= 2: segs.append(cur)
@@ -182,10 +211,20 @@ def process(name, pts, meta):
     area, country = area_for(lat0, lon0)
     day = local_date(t0)
     trimmed = trim_ends(pts, PRIVACY_TRIM_M)
-    segs, camps = cut_camps(trimmed)
+    # recordings joined together leave jumps; split there so no false line is drawn
+    runs, cur = [], [trimmed[0]]
+    for a, b in zip(trimmed, trimmed[1:]):
+        if hav((a["lat"], a["lon"]), (b["lat"], b["lon"])) > 1000: runs.append(cur); cur = []
+        cur.append(b)
+    runs.append(cur)
+    segs, camps = [], 0
+    for run in runs:
+        if len(run) < 2: continue
+        s_, c_ = cut_camps(run); segs += s_; camps += c_
     if not segs: return None
     st = stats(segs)
-    slug = slugify(f"{day.isoformat() if day else 'undated'}-{area or country or 'route'}")
+    nice = clean_name(name)
+    slug = slugify(f"{day.isoformat() if day else 'undated'}-{nice or area or country or 'route'}")[:80].strip("-")
     base, n = slug, 2
     while slug in process.seen: slug, n = f"{base}-{n}", n + 1
     process.seen.add(slug)
@@ -194,8 +233,8 @@ def process(name, pts, meta):
     if "title" not in m:
         place = area or country or "Off-road route"
         m.update({
-            "title": f"{place}" + (" overland" if st["distance_km"] > 150 else "") + (f", {day.strftime('%B %Y')}" if day else ""),
-            "type": "overland" if st["distance_km"] > 150 else "desert",
+            "title": nice or (f"{place}" + (" overland" if st["distance_km"] > 150 else "") + (f", {day.strftime('%B %Y')}" if day else "")),
+            "type": "overland" if st["distance_km"] > 150 else AREA_TYPE.get(area, "desert"),
             "notes": "", "vehicle": "", "hidden": False, "featured": False,
             "gaia_name": name, "draft_title": True,
         })
@@ -245,10 +284,29 @@ def main(args):
     if OUT.exists(): shutil.rmtree(OUT)
     OUT.mkdir(parents=True)
     routes = []
+    # gather tracks; join pieces of one drive (same name, same day) into one route
+    groups = {}
     for f in sorted(GPX_DIR.glob("*.gpx")):
         for name, pts in read_tracks(f):
-            r = process(name, pts, meta)
-            if r: routes.append(r)
+            t0 = next((p["t"] for p in pts if p["t"]), None)
+            key = (clean_name(name).lower(), local_date(t0)) if clean_name(name) else (id(pts), None)
+            if key in groups:
+                g = groups[key]; g[1].extend(pts); g[1].sort(key=lambda p: p["t"] or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc))
+            else:
+                groups[key] = [name, pts]
+    for name, pts in groups.values():
+        r = process(name, pts, meta)
+        if r: routes.append(r)
+    # the same drive recorded twice (two phones, two exports): keep the fuller one
+    for i, a in enumerate(routes):
+        for b in routes[i + 1:]:
+            if a["date"] and a["date"] == b["date"] and hav(a["centre"], b["centre"]) < 3000 \
+               and abs(a["distance_km"] - b["distance_km"]) <= 0.25 * max(a["distance_km"], b["distance_km"]):
+                drop = b if len(json.dumps(a["segments"])) >= len(json.dumps(b["segments"])) else a
+                keep = a if drop is b else b
+                m = meta[drop["slug"]]
+                if "duplicate_of" not in m:
+                    m["duplicate_of"] = keep["slug"]; m["hidden"] = True
     # meta may override computed fields after an edit
     for r in routes:
         m = meta[r["slug"]]
