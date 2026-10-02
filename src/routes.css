@@ -70,3 +70,5 @@
 .tagrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .lvl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink);border:1.5px solid var(--line);border-radius:99px;padding:1px 8px}
 @media (min-width:761px){.stats{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}}
+.chip.small{font-size:13px;padding:5px 12px}
+#levels{margin-top:-10px}

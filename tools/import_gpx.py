@@ -53,12 +53,14 @@ AREA_TYPE = {"Khatt, Ras Al Khaimah": "wadi", "Hatta": "wadi"}
 GENERIC_NAME = re.compile(r"^(new track|untitled|track|(mon|tues|wednes|thurs|fri|satur|sun)day\b.*(activity|offroading|drive|saudi))", re.I)
 DATE_BITS = re.compile(r"\b\d{1,2}/\d{1,2}/\d{2,4}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", re.I)
 
-LEVELS = [  # notation used in track names -> difficulty shown on the site
-    (re.compile(r"(?i)\bfewbie\b[ .:-]*"), "Fewbie"),
-    (re.compile(r"(?i)\bnewbie\b[ .:-]*"), "Newbie"),
-    (re.compile(r"\bIM\b"), "Intermediate"),
-    (re.compile(r"(?i)\bintermediate\b"), "Intermediate"),
-    (re.compile(r"(?i)\b(adv|advanced)\b"), "Advanced"),
+LEVELS = [  # notation used in track names -> difficulty shown on the site, easiest first
+    (re.compile(r"\bAN\b|(?i:\babsolute\s+newbie\b)"), "Absolute Newbie"),
+    (re.compile(r"(?i)\bnewbie\b"), "Newbie"),
+    (re.compile(r"(?i)\bfewbie\s*(\+|plus)"), "Fewbie Plus"),
+    (re.compile(r"(?i)\bfewbie\b"), "Fewbie"),
+    (re.compile(r"\bIM\b|(?i:\bintermediate\b)"), "Intermediate"),
+    (re.compile(r"(?i)\bextreme\b"), "Extreme"),
+    (re.compile(r"(?i)\bexploration\b"), "Exploration"),
 ]
 
 def level_and_title(nice):
@@ -68,6 +70,7 @@ def level_and_title(nice):
         if rx.search(nice):
             level = level or name
             nice = rx.sub(" ", nice)
+    nice = re.sub(r"(?i)^[\s.:+-]+", "", nice)
     nice = re.sub(r"\s{2,}", " ", nice).strip(" .:-")
     return level, (nice[0].upper() + nice[1:]) if nice else ""
 
